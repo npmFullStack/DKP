@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dakop</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    
+    <!-- Global Error Handler -->
+    <script>
+      // Handle uncaught errors
+      window.addEventListener('error', function(event) {
+        console.error('Global Error:', event.error);
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          background: #FF3333;
+          color: white;
+          padding: 12px 20px;
+          border-radius: 8px;
+          font-family: monospace;
+          font-size: 14px;
+          z-index: 9999;
+          max-width: 400px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          cursor: pointer;
+        `;
+        errorDiv.innerHTML = `❌ Error: ${event.error?.message || 'Something went wrong'}<br><small>Click to dismiss</small>`;
+        errorDiv.onclick = () => errorDiv.remove();
+        document.body.appendChild(errorDiv);
+        
+        // Auto remove after 8 seconds
+        setTimeout(() => errorDiv.remove(), 8000);
+      });
+
+      // Handle unhandled promise rejections
+      window.addEventListener('unhandledrejection', function(event) {
+        console.error('Unhandled Rejection:', event.reason);
+        const errorDiv = document.createElement('div');
+        errorDiv.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          background: #FF3333;
+          color: white;
+          padding: 12px 20px;
+          border-radius: 8px;
+          font-family: monospace;
+          font-size: 14px;
+          z-index: 9999;
+          max-width: 400px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+          cursor: pointer;
+        `;
+        errorDiv.innerHTML = `⚠️ Promise Error: ${event.reason?.message || event.reason || 'Unhandled rejection'}<br><small>Click to dismiss</small>`;
+        errorDiv.onclick = () => errorDiv.remove();
+        document.body.appendChild(errorDiv);
+        
+        // Auto remove after 8 seconds
+        setTimeout(() => errorDiv.remove(), 8000);
+      });
+    </script>
+    
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
