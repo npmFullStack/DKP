@@ -11,6 +11,8 @@ const SignIn = lazy(() => import("@/pages/SignIn"));
 const SignUp = lazy(() => import("@/pages/SignUp"));
 const Dashboard = lazy(() => import("@/pages/Dashboard"));
 const ViewMap = lazy(() => import("@/pages/ViewMap"));
+const Checkpoint = lazy(() => import("@/pages/Checkpoint"));
+const ReportCheckpoint = lazy(() => import("@/pages/ReportCheckpoint"));
 
 function App() {
     return (
@@ -26,8 +28,10 @@ function App() {
                     </Route>
                     <Route element={<DashboardLayout />}>
                         <Route path="/dashboard" element={<Dashboard />} />
+                        <Route path="/checkpoint" element={<Checkpoint />} />
+                        <Route path="/checkpoint/report" element={<ReportCheckpoint />} />
                     </Route>
-  <Route path="/map" element={<ViewMap />} />
+                    <Route path="/map" element={<ViewMap />} />
                 </Routes>
             </Suspense>
         </BrowserRouter>

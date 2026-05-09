@@ -5,24 +5,30 @@ import {
     Menu,
     X,
     LayoutDashboard,
-    Users,
+    MapPin,
     Settings,
-    LogOut
+    LogOut,
+    Bell,
+    Sidebar
 } from "lucide-react";
 import logo from "@/assets/images/logo.png";
+import WarningModal from "@/components/WarningModal";
 
 const DashboardLayout = () => {
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isMobile, setIsMobile] = useState(false);
+    const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
+    const [isLoggingOut, setIsLoggingOut] = useState(false);
     const location = useLocation();
 
     useEffect(() => {
         const checkMobile = () => {
-            setIsMobile(window.innerWidth < 768);
-            if (window.innerWidth >= 768) {
-                setIsSidebarOpen(true);
-            } else {
+            const mobile = window.innerWidth < 768;
+            setIsMobile(mobile);
+            if (mobile) {
                 setIsSidebarOpen(false);
+            } else {
+                setIsSidebarOpen(true);
             }
         };
 
@@ -38,20 +44,55 @@ const DashboardLayout = () => {
         }
     }, [location, isMobile]);
 
+    const handleLogout = () => {
+        setIsLogoutModalOpen(true);
+    };
+
+    const confirmLogout = async () => {
+        setIsLoggingOut(true);
+        // Simulate API call
+        setTimeout(() => {
+            setIsLoggingOut(false);
+            setIsLogoutModalOpen(false);
+            // Navigate to signin or handle logout logic
+            console.log("Logged out");
+        }, 1000);
+    };
+
     const navItems = [
         { path: "/dashboard", icon: LayoutDashboard, label: "Dashboard" },
-        { path: "/users", icon: Users, label: "Users" },
+        { path: "/checkpoint", icon: MapPin, label: "Checkpoints" },
         { path: "/settings", icon: Settings, label: "Settings" }
     ];
 
     const SidebarContent = () => (
         <div className="flex flex-col h-full">
             {/* Logo Section */}
-            <div className="flex items-center justify-center gap-1 py-3 border-b border-white/10">
-                <img src={logo} alt="DAKOP Logo" className="w-8 h-8" />
-                <span className="text-3xl font-heading text-primary">
-                    DAKOP
-                </span>
+            <div className="flex items-center justify-between px-4 py-3">
+                <div className="flex items-center gap-1">
+                    {/* Logo image - only visible when sidebar is open */}
+                    {isSidebarOpen && (
+                        <img src={logo} alt="DAKOP Logo" className="w-8 h-8" />
+                    )}
+
+                    {/* Logo text - only visible when sidebar is open */}
+                    {isSidebarOpen && (
+                        <span className="text-3xl font-heading text-primary transition-opacity duration-200">
+                            DAKOP
+                        </span>
+                    )}
+                </div>
+
+                {/* Sidebar Toggle Button - Only visible on desktop */}
+                {!isMobile && (
+                    <button
+                        onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+                        className="p-1.5 rounded-lg hover:bg-white/10 transition-colors text-gray-400 hover:text-white"
+                        aria-label="Toggle Sidebar"
+                    >
+                        <Sidebar className="w-5 h-5" />
+                    </button>
+                )}
             </div>
 
             {/* Navigation */}
@@ -66,12 +107,15 @@ const DashboardLayout = () => {
                                     to={item.path}
                                     className={`flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all duration-200 ${
                                         isActive
-                                            ? "bg-primary text-white shadow-lg"
+                                            ? "bg-primary text-white "
                                             : "text-gray-300 hover:bg-white/10 hover:text-white"
-                                    }`}
+                                    } ${!isSidebarOpen && "justify-center"}`}
+                                    title={
+                                        !isSidebarOpen ? item.label : undefined
+                                    }
                                 >
-                                    <Icon className="w-5 h-5" />
-                                    <span>{item.label}</span>
+                                    <Icon className="w-5 h-5 flex-shrink-0" />
+                                    {isSidebarOpen && <span>{item.label}</span>}
                                 </Link>
                             </li>
                         );
@@ -80,13 +124,16 @@ const DashboardLayout = () => {
             </nav>
 
             {/* Logout Button */}
-            <div className="p-4 border-t border-white/10">
+            <div className="p-4">
                 <button
-                    onClick={() => console.log("Logout")}
-                    className="flex items-center gap-3 px-4 py-2.5 w-full rounded-lg text-gray-300 hover:bg-red-500/20 hover:text-red-400 transition-all duration-200"
+                    onClick={handleLogout}
+                    className={`flex items-center gap-3 px-4 py-2.5 w-full rounded-lg text-gray-300 hover:bg-red-500/20 hover:text-red-400 transition-all duration-200 ${
+                        !isSidebarOpen && "justify-center"
+                    }`}
+                    title={!isSidebarOpen ? "Logout" : undefined}
                 >
-                    <LogOut className="w-5 h-5" />
-                    <span>Logout</span>
+                    <LogOut className="w-5 h-5 flex-shrink-0" />
+                    {isSidebarOpen && <span>Logout</span>}
                 </button>
             </div>
         </div>
@@ -104,9 +151,9 @@ const DashboardLayout = () => {
 
             {/* Sidebar - Desktop: always visible, Mobile: drawer */}
             <aside
-                className={`fixed top-0 left-0 h-full w-64 bg-secondary/95 backdrop-blur-sm border-r border-white/10 z-50 transition-transform duration-300 ${
-                    isSidebarOpen ? "translate-x-0" : "-translate-x-full"
-                }`}
+                className={`fixed top-0 left-0 h-full bg-secondary z-50 transition-all duration-300 ${
+                    isSidebarOpen ? "w-64" : "w-20"
+                } ${isMobile && !isSidebarOpen ? "-translate-x-full" : "translate-x-0"}`}
             >
                 <SidebarContent />
             </aside>
@@ -114,25 +161,34 @@ const DashboardLayout = () => {
             {/* Main Content */}
             <div
                 className={`transition-all duration-300 ${
-                    !isMobile && isSidebarOpen ? "ml-64" : "ml-0"
+                    !isMobile && isSidebarOpen
+                        ? "ml-64"
+                        : !isMobile && !isSidebarOpen
+                          ? "ml-20"
+                          : "ml-0"
                 }`}
             >
                 {/* Header */}
-                <header className="sticky top-0 z-30 bg-secondary/80 backdrop-blur-sm border-b border-white/10">
+                <header className="sticky top-0 z-30 bg-secondary">
                     <div className="flex items-center justify-between px-4 py-3">
                         {/* Left section with burger icon and logo */}
                         <div className="flex items-center gap-3">
-                            <button
-                                onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-                                className="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"
-                                aria-label="Toggle Menu"
-                            >
-                                {isSidebarOpen && isMobile ? (
-                                    <X className="w-6 h-6" />
-                                ) : (
-                                    <Menu className="w-6 h-6" />
-                                )}
-                            </button>
+                            {/* Mobile menu button */}
+                            {isMobile && (
+                                <button
+                                    onClick={() =>
+                                        setIsSidebarOpen(!isSidebarOpen)
+                                    }
+                                    className="p-2 rounded-lg hover:bg-white/10 transition-colors text-white"
+                                    aria-label="Toggle Menu"
+                                >
+                                    {isSidebarOpen ? (
+                                        <X className="w-6 h-6" />
+                                    ) : (
+                                        <Menu className="w-6 h-6" />
+                                    )}
+                                </button>
+                            )}
 
                             {/* Mobile logo (visible when sidebar is closed on mobile) */}
                             {isMobile && !isSidebarOpen && (
@@ -149,8 +205,15 @@ const DashboardLayout = () => {
                             )}
                         </div>
 
-                        {/* Right section - can add user menu, notifications, etc. */}
+                        {/* Right section with notification and user avatar */}
                         <div className="flex items-center gap-4">
+                            {/* Notification Bell */}
+                            <button className="relative p-2 rounded-lg hover:bg-white/10 transition-colors text-gray-400 hover:text-white">
+                                <Bell className="w-5 h-5" />
+                                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
+                            </button>
+
+                            {/* User Avatar */}
                             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
                                 <span className="text-primary font-semibold">
                                     JD
@@ -165,6 +228,17 @@ const DashboardLayout = () => {
                     <Outlet />
                 </main>
             </div>
+
+            <WarningModal
+                isOpen={isLogoutModalOpen}
+                onClose={() => setIsLogoutModalOpen(false)}
+                onConfirm={confirmLogout}
+                title="Logout"
+                message="Are you sure you want to logout from DAKOP?"
+                isLoading={isLoggingOut}
+                submitIcon={<LogOut className="w-4 h-4" />}
+                submitText="Logout"
+            />
         </div>
     );
 };
