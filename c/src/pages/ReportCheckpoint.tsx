@@ -9,7 +9,9 @@ import {
     Clock,
     CheckCircle,
     Image,
-    Flag
+    Crosshair,
+    ShieldAlert,
+    Info
 } from "lucide-react";
 import Button from "@/components/Button";
 import LocationSearch from "@/components/LocationSearch";
@@ -22,9 +24,9 @@ const ReportCheckpoint = () => {
         images: [] as File[],
         locationData: {
             title: "",
-            province: null,
-            municipality: null,
-            barangay: null,
+            province: null as { value: string; label: string } | null,
+            municipality: null as { value: string; label: string } | null,
+            barangay: null as { value: string; label: string } | null,
             street: "",
             fullAddress: "",
             coordinates: null as { lat: number; lng: number } | null
@@ -90,6 +92,14 @@ const ReportCheckpoint = () => {
             }, 3000);
         }, 1500);
     };
+
+    const radarLocation = formData.locationData.province ? {
+        province: formData.locationData.province?.label || '',
+        municipality: formData.locationData.municipality?.label || '',
+        barangay: formData.locationData.barangay?.label || '',
+        street: formData.locationData.street || '',
+        fullAddress: formData.locationData.fullAddress || ''
+    } : null;
 
     return (
         <div className="space-y-6">
@@ -191,56 +201,66 @@ const ReportCheckpoint = () => {
                     </form>
                 </div>
 
-                {/* Right – Radar + Info */}
-                <div className="space-y-6">
-                    {/* Radar */}
+                {/* Right – Map + Info */}
+                <div className="space-y-4">
+                    {/* Map — full width, no circle */}
                     <div className="bg-secondary/30 rounded-xl border border-white/10 overflow-hidden">
-                        <div className="p-4 border-b border-white/10">
+                        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
                             <h3 className="text-white font-semibold text-sm">Location Preview</h3>
+                            {radarLocation?.fullAddress && (
+                                <span className="text-xs text-gray-400 truncate max-w-[200px]">
+                                    {radarLocation.fullAddress}
+                                </span>
+                            )}
                         </div>
-                        <div className="p-6 flex justify-center">
-                            <MiniMapRadar
-                                location={formData.locationData.fullAddress ? {
-                                    province: formData.locationData.province?.label || '',
-                                    municipality: formData.locationData.municipality?.label || '',
-                                    barangay: formData.locationData.barangay?.label || '',
-                                    street: formData.locationData.street,
-                                    fullAddress: formData.locationData.fullAddress
-                                } : null}
-                                coordinates={formData.locationData.coordinates}
-                            />
+                        <MiniMapRadar
+                            location={radarLocation}
+                            coordinates={formData.locationData.coordinates}
+                        />
+                    </div>
+
+                    {/* Active Duration */}
+                    <div className="flex items-center gap-3 px-4 py-3 bg-secondary/30 rounded-xl border border-white/10">
+                        <div className="p-2 rounded-lg bg-white/5">
+                            <Clock className="w-4 h-4 text-gray-300" />
+                        </div>
+                        <div>
+                            <p className="text-white text-sm font-medium">Active for 5 hours</p>
+                            <p className="text-gray-400 text-xs">Report expires automatically after submission</p>
                         </div>
                     </div>
 
-                    {/* Quick info */}
-                    <div className="bg-secondary/30 rounded-xl border border-white/10 p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-yellow-400 text-sm font-medium">
-                            <Clock className="w-4 h-4" />
-                            Active for 5 hours after submission
+                    {/* Tips */}
+                    <div className="bg-secondary/30 rounded-xl border border-white/10 overflow-hidden">
+                        <div className="px-4 py-3 border-b border-white/10 flex items-center gap-2">
+                            <Info className="w-4 h-4 text-gray-400" />
+                            <h3 className="text-white font-semibold text-sm">Reporting Tips</h3>
                         </div>
-                        <div className="h-px bg-white/10" />
-                        <ul className="space-y-2 text-xs text-gray-400">
-                            <li className="flex items-start gap-2">
-                                <span className="text-primary mt-0.5">•</span>
-                                Use the GPS button for the most accurate location
-                            </li>
-                            <li className="flex items-start gap-2">
-                                <span className="text-primary mt-0.5">•</span>
-                                Add a landmark or street name to help others
-                            </li>
-                            <li className="flex items-start gap-2">
-                                <span className="text-primary mt-0.5">•</span>
-                                Only report checkpoints you personally saw
-                            </li>
-                        </ul>
+                        <div className="divide-y divide-white/5">
+                            <div className="flex items-start gap-3 px-4 py-3">
+                                <Crosshair className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                                <p className="text-gray-300 text-sm">Use the GPS button for the most accurate pin on the map</p>
+                            </div>
+                            <div className="flex items-start gap-3 px-4 py-3">
+                                <Image className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                                <p className="text-gray-300 text-sm">Add a landmark or street name so others can easily find it</p>
+                            </div>
+                            <div className="flex items-start gap-3 px-4 py-3">
+                                <CheckCircle className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
+                                <p className="text-gray-300 text-sm">Only report checkpoints you personally saw</p>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Disclaimer */}
-                    <div className="flex items-start gap-2 p-3 bg-red-500/5 rounded-lg border border-red-500/20">
-                        <AlertCircle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                        <p className="text-xs text-gray-400">
-                            Reports are community-contributed and may not always be accurate. Drive safely. False reports may be penalized.
-                        </p>
+                    <div className="flex items-start gap-3 px-4 py-3.5 bg-red-500/10 rounded-xl border border-red-500/20">
+                        <ShieldAlert className="w-5 h-5 text-red-400 flex-shrink-0 mt-0.5" />
+                        <div>
+                            <p className="text-red-300 text-sm font-medium mb-0.5">Community Reports Only</p>
+                            <p className="text-red-300/70 text-sm">
+                                Reports may not always be accurate. Drive safely and responsibly. False or misleading reports may result in account penalties.
+                            </p>
+                        </div>
                     </div>
                 </div>
             </div>

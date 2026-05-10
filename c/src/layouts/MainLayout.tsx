@@ -37,18 +37,24 @@ const MainLayout = () => {
                     </Link>
 
                     <div className="flex gap-3">
-                        <Button
-                            variant="ghost"
-                            icon={<LogIn className="w-4 h-4" />}
-                        >
-                            Sign In
-                        </Button>
-                        <Button
-                            variant="primary"
-                            icon={<AlertTriangle className="w-4 h-4" />}
-                        >
-                            Report
-                        </Button>
+                        <Link to="/signin">
+                            <Button
+                                variant="ghost"
+                                icon={<LogIn className="w-4 h-4" />}
+                                className="focus:ring-0 focus:outline-none hover:bg-transparent"
+                            >
+                                Sign In
+                            </Button>
+                        </Link>
+                        <Link to="/checkpoint/report">
+                            <Button
+                                variant="primary"
+                                icon={<AlertTriangle className="w-4 h-4" />}
+                                className="rounded-full"
+                            >
+                                Report
+                            </Button>
+                        </Link>
                     </div>
                 </div>
             </header>

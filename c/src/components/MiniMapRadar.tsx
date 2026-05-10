@@ -23,7 +23,6 @@ interface MiniMapRadarProps {
     coordinates?: { lat: number; lng: number } | null;
 }
 
-// Radar animation styles — injected once
 const radarStyles = `
     @keyframes radar-pulse {
         0%   { box-shadow: 0 0 0 0 rgba(255,51,51,0.7); }
@@ -43,7 +42,6 @@ if (typeof document !== 'undefined' && !document.querySelector('#radar-styles'))
     document.head.appendChild(styleTag);
 }
 
-// Defined once outside component — no need to recreate per render
 const radarIcon = L.divIcon({
     className: 'radar-marker',
     html: `<div style="position:relative;width:40px;height:40px;">
@@ -67,35 +65,104 @@ const radarIcon = L.divIcon({
     </div>`,
     iconSize: [40, 40],
     iconAnchor: [20, 20],
-    popupAnchor: [0, -24]
 });
+
+const buildGeoQuery = (location: MiniMapRadarProps['location']): string | null => {
+    if (!location) return null;
+    const parts = [
+        location.street,
+        location.barangay,
+        location.municipality,
+        location.province,
+        'Philippines'
+    ].filter(Boolean);
+    return parts.length > 1 ? parts.join(', ') : null;
+};
+
+const getZoomLevel = (location: MiniMapRadarProps['location']): number => {
+    if (!location) return 6;
+    if (location.street) return 17;
+    if (location.barangay) return 14;
+    if (location.municipality) return 12;
+    if (location.province) return 10;
+    return 6;
+};
 
 const MiniMapRadar = ({ location, coordinates: coordProp }: MiniMapRadarProps) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
     const mapRef = useRef<L.Map | null>(null);
     const markerRef = useRef<L.Marker | null>(null);
     const [loading, setLoading] = useState(false);
-    const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
-        coordProp ?? null
-    );
-    const [mapInitialized, setMapInitialized] = useState(false);
+    const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(coordProp ?? null);
+    const [hasLocation, setHasLocation] = useState(false);
 
-    // ── 1. Resolve coordinates ──────────────────────────────────────────────
+    // ── 1. Initialize map once ───────────────────────────────────────────────
     useEffect(() => {
-        // GPS / parent-provided coords always win
+        if (!mapContainerRef.current || mapRef.current) return;
+
+        const initMap = () => {
+            if (!mapContainerRef.current || mapRef.current) return;
+            try {
+                const map = L.map(mapContainerRef.current, {
+                    zoomControl: false,
+                    attributionControl: false,
+                }).setView([12.8797, 121.7740], 6);
+
+                L.tileLayer(
+                    'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                    { subdomains: 'abcd', minZoom: 0, maxZoom: 20, attribution: '' }
+                ).addTo(map);
+
+                mapRef.current = map;
+                setTimeout(() => map.invalidateSize(), 100);
+                setTimeout(() => map.invalidateSize(), 300);
+            } catch (err) {
+                console.error('Map init error:', err);
+            }
+        };
+
+        const timer = setTimeout(initMap, 50);
+
+        const resizeObserver = typeof ResizeObserver !== 'undefined'
+            ? new ResizeObserver(() => mapRef.current?.invalidateSize())
+            : null;
+
+        if (resizeObserver && mapContainerRef.current) {
+            resizeObserver.observe(mapContainerRef.current);
+        }
+
+        return () => {
+            clearTimeout(timer);
+            resizeObserver?.disconnect();
+            mapRef.current?.remove();
+            mapRef.current = null;
+            markerRef.current = null;
+        };
+    }, []);
+
+    // ── 2. Resolve coordinates progressively ────────────────────────────────
+    useEffect(() => {
         if (coordProp) {
             setCoords(coordProp);
+            setHasLocation(true);
             return;
         }
-        if (!location?.fullAddress) {
+
+        const query = buildGeoQuery(location);
+
+        if (!query) {
             setCoords(null);
+            setHasLocation(false);
             return;
         }
+
+        setHasLocation(true);
         let cancelled = false;
+
         const resolve = async () => {
             setLoading(true);
             try {
-                const result = await getCoordinatesFromAddress(location.fullAddress);
+                const result = await getCoordinatesFromAddress(query);
                 if (!cancelled) {
                     setCoords(result ? { lat: result.lat, lng: result.lon } : null);
                 }
@@ -105,62 +172,24 @@ const MiniMapRadar = ({ location, coordinates: coordProp }: MiniMapRadarProps) =
                 if (!cancelled) setLoading(false);
             }
         };
+
         resolve();
         return () => { cancelled = true; };
-    }, [location?.fullAddress, coordProp]);
+    }, [
+        coordProp,
+        location?.province,
+        location?.municipality,
+        location?.barangay,
+        location?.street,
+    ]);
 
-    // ── 2. Initialize map when container mounts AND becomes visible ────────
-    useEffect(() => {
-        if (!mapContainerRef.current || mapRef.current) return;
-
-        // Small delay to ensure container is properly sized in DOM
-        const timer = setTimeout(() => {
-            if (!mapContainerRef.current || mapRef.current) return;
-
-            const map = L.map(mapContainerRef.current, {
-                zoomControl: false,
-                attributionControl: false,
-            }).setView([12.8797, 121.7740], 6); // Default: centre of PH
-
-            L.tileLayer(
-                'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                { subdomains: 'abcd', minZoom: 0, maxZoom: 20 }
-            ).addTo(map);
-
-            // Force map to update its size after initialization
-            setTimeout(() => {
-                map.invalidateSize();
-            }, 100);
-
-            mapRef.current = map;
-            setMapInitialized(true);
-        }, 50);
-
-        return () => {
-            clearTimeout(timer);
-            if (mapRef.current) {
-                mapRef.current.remove();
-                mapRef.current = null;
-                markerRef.current = null;
-                setMapInitialized(false);
-            }
-        };
-    }, []); // ← empty: run once only
-
-    // ── 3. Update map size when it might have changed (after renders) ──────
-    useEffect(() => {
-        if (mapRef.current && mapInitialized) {
-            // Invalidate size to ensure map displays correctly
-            mapRef.current.invalidateSize();
-        }
-    }, [mapInitialized, coords]);
-
-    // ── 4. Update marker + pan whenever coords change ───────────────────────
+    // ── 3. Update marker + pan ───────────────────────────────────────────────
     useEffect(() => {
         const map = mapRef.current;
-        if (!map || !mapInitialized) return;
+        if (!map) return;
 
-        // Remove old marker
+        map.invalidateSize();
+
         if (markerRef.current) {
             map.removeLayer(markerRef.current);
             markerRef.current = null;
@@ -168,81 +197,48 @@ const MiniMapRadar = ({ location, coordinates: coordProp }: MiniMapRadarProps) =
 
         if (!coords) return;
 
-        // Smooth pan to new pin
-        map.setView([coords.lat, coords.lng], 15, { animate: true });
+        const zoom = getZoomLevel(location);
+        map.setView([coords.lat, coords.lng], zoom, { animate: true });
 
-        // Drop the radar marker
+        // Marker only — no popup
         const marker = L.marker([coords.lat, coords.lng], { icon: radarIcon }).addTo(map);
-
-        if (location?.fullAddress) {
-            marker.bindPopup(`
-                <div style="background:#1A1A1A;color:white;padding:8px 12px;border-radius:8px;border-left:3px solid #FF3333;min-width:160px;">
-                    <strong>📍 Reported Location</strong><br/>
-                    <small style="color:#ccc;">${location.fullAddress}</small>
-                </div>
-            `);
-        }
-
         markerRef.current = marker;
-        
-        // Ensure map is properly sized after marker update
-        setTimeout(() => {
-            if (mapRef.current) {
-                mapRef.current.invalidateSize();
-            }
-        }, 100);
-    }, [coords, location?.fullAddress, mapInitialized]);
-
-    // ── Placeholder helper ──────────────────────────────────────────────────
-    const Placeholder = ({ children }: { children: React.ReactNode }) => (
-        <div
-            className="flex flex-col items-center justify-center bg-secondary/50 border border-white/10"
-            style={{ width: 280, height: 280, borderRadius: '50%', margin: '0 auto' }}
-        >
-            {children}
-        </div>
-    );
-
-    if (loading) return (
-        <Placeholder>
-            <Loader className="w-8 h-8 text-primary animate-spin mb-3" />
-            <p className="text-gray-400 text-sm">Loading map...</p>
-        </Placeholder>
-    );
-
-    if (!location?.fullAddress) return (
-        <Placeholder>
-            <MapPin className="w-12 h-12 text-gray-500 mb-3" />
-            <p className="text-gray-400 text-sm text-center px-8">
-                Fill in the location to see the radar preview
-            </p>
-        </Placeholder>
-    );
-
-    if (!coords && !loading) return (
-        <Placeholder>
-            <MapPin className="w-12 h-12 text-yellow-500 mb-3" />
-            <p className="text-gray-400 text-sm text-center px-8">
-                Locating address on map...
-            </p>
-        </Placeholder>
-    );
+    }, [coords]);
 
     return (
-        <div className="relative mx-auto" style={{ width: 280, height: 280 }}>
-            {/* Circular clip wrapper */}
+        <div className="relative w-full" style={{ height: '280px' }}>
+            {/* Map — always mounted so Leaflet stays alive */}
             <div
-                className="w-full h-full overflow-hidden border-2 border-primary/30"
-                style={{ borderRadius: '50%' }}
-            >
-                <div ref={mapContainerRef} className="w-full h-full" />
-            </div>
+                ref={mapContainerRef}
+                className="absolute inset-0 w-full h-full"
+                style={{ visibility: hasLocation ? 'visible' : 'hidden' }}
+            />
 
-            {/* Radar label */}
-            <div className="absolute bottom-5 left-1/2 -translate-x-1/2 bg-black/70 backdrop-blur-sm px-3 py-1 rounded-full text-xs text-white border border-white/10 z-[1000] flex items-center gap-1.5 whitespace-nowrap">
-                <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-                Radar Preview
-            </div>
+            {/* Placeholder when no location */}
+            {!hasLocation && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-secondary/40">
+                    <div className="p-4 rounded-full bg-white/5 border border-white/10">
+                        <MapPin className="w-8 h-8 text-gray-500" />
+                    </div>
+                    <p className="text-gray-500 text-sm">Select a location to preview on map</p>
+                </div>
+            )}
+
+            {/* Loading overlay */}
+            {loading && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm z-[1001]">
+                    <Loader className="w-6 h-6 text-primary animate-spin mb-2" />
+                    <p className="text-white text-xs">Locating on map...</p>
+                </div>
+            )}
+
+            {/* Live preview badge */}
+            {hasLocation && !loading && (
+                <div className="absolute bottom-3 left-3 bg-black/70 backdrop-blur-sm px-2.5 py-1 rounded-md text-xs text-white border border-white/10 z-[1000] flex items-center gap-1.5">
+                    <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+                    Live Preview
+                </div>
+            )}
         </div>
     );
 };

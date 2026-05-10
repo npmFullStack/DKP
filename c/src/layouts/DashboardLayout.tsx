@@ -12,6 +12,7 @@ import {
     Sidebar
 } from "lucide-react";
 import logo from "@/assets/images/logo.png";
+import NotificationMenu from "@/components/NotificationMenu";
 import WarningModal from "@/components/WarningModal";
 
 const DashboardLayout = () => {
@@ -208,10 +209,7 @@ const DashboardLayout = () => {
                         {/* Right section with notification and user avatar */}
                         <div className="flex items-center gap-4">
                             {/* Notification Bell */}
-                            <button className="relative p-2 rounded-lg hover:bg-white/10 transition-colors text-gray-400 hover:text-white">
-                                <Bell className="w-5 h-5" />
-                                <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-                            </button>
+<NotificationMenu />
 
                             {/* User Avatar */}
                             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
