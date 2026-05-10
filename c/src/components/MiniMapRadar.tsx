@@ -72,13 +72,13 @@ const radarIcon = L.divIcon({
 
 const MiniMapRadar = ({ location, coordinates: coordProp }: MiniMapRadarProps) => {
     const mapContainerRef = useRef<HTMLDivElement>(null);
-    // Map + marker live in refs — never recreated on re-render
     const mapRef = useRef<L.Map | null>(null);
     const markerRef = useRef<L.Marker | null>(null);
     const [loading, setLoading] = useState(false);
     const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(
         coordProp ?? null
     );
+    const [mapInitialized, setMapInitialized] = useState(false);
 
     // ── 1. Resolve coordinates ──────────────────────────────────────────────
     useEffect(() => {
@@ -109,33 +109,56 @@ const MiniMapRadar = ({ location, coordinates: coordProp }: MiniMapRadarProps) =
         return () => { cancelled = true; };
     }, [location?.fullAddress, coordProp]);
 
-    // ── 2. Initialize map ONCE when the container div mounts ───────────────
+    // ── 2. Initialize map when container mounts AND becomes visible ────────
     useEffect(() => {
         if (!mapContainerRef.current || mapRef.current) return;
 
-        const map = L.map(mapContainerRef.current, {
-            zoomControl: false,
-            attributionControl: false,
-        }).setView([12.8797, 121.7740], 6); // Default: centre of PH
+        // Small delay to ensure container is properly sized in DOM
+        const timer = setTimeout(() => {
+            if (!mapContainerRef.current || mapRef.current) return;
 
-        L.tileLayer(
-            'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-            { subdomains: 'abcd', minZoom: 0, maxZoom: 20 }
-        ).addTo(map);
+            const map = L.map(mapContainerRef.current, {
+                zoomControl: false,
+                attributionControl: false,
+            }).setView([12.8797, 121.7740], 6); // Default: centre of PH
 
-        mapRef.current = map;
+            L.tileLayer(
+                'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                { subdomains: 'abcd', minZoom: 0, maxZoom: 20 }
+            ).addTo(map);
+
+            // Force map to update its size after initialization
+            setTimeout(() => {
+                map.invalidateSize();
+            }, 100);
+
+            mapRef.current = map;
+            setMapInitialized(true);
+        }, 50);
 
         return () => {
-            map.remove();
-            mapRef.current = null;
-            markerRef.current = null;
+            clearTimeout(timer);
+            if (mapRef.current) {
+                mapRef.current.remove();
+                mapRef.current = null;
+                markerRef.current = null;
+                setMapInitialized(false);
+            }
         };
     }, []); // ← empty: run once only
 
-    // ── 3. Update marker + pan whenever coords change ───────────────────────
+    // ── 3. Update map size when it might have changed (after renders) ──────
+    useEffect(() => {
+        if (mapRef.current && mapInitialized) {
+            // Invalidate size to ensure map displays correctly
+            mapRef.current.invalidateSize();
+        }
+    }, [mapInitialized, coords]);
+
+    // ── 4. Update marker + pan whenever coords change ───────────────────────
     useEffect(() => {
         const map = mapRef.current;
-        if (!map) return;
+        if (!map || !mapInitialized) return;
 
         // Remove old marker
         if (markerRef.current) {
@@ -161,7 +184,14 @@ const MiniMapRadar = ({ location, coordinates: coordProp }: MiniMapRadarProps) =
         }
 
         markerRef.current = marker;
-    }, [coords, location?.fullAddress]);
+        
+        // Ensure map is properly sized after marker update
+        setTimeout(() => {
+            if (mapRef.current) {
+                mapRef.current.invalidateSize();
+            }
+        }, 100);
+    }, [coords, location?.fullAddress, mapInitialized]);
 
     // ── Placeholder helper ──────────────────────────────────────────────────
     const Placeholder = ({ children }: { children: React.ReactNode }) => (

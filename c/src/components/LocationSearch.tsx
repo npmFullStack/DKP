@@ -29,12 +29,13 @@ interface LocationSearchProps {
     initialData?: Partial<LocationData>;
 }
 
-// ─── Street autocomplete hook - FIXED: Now suggests with 1+ characters ─────────────────────────────────
+// ─── Street autocomplete hook - FIXED: No retrigger after selection ─────────────────────────────────
 
-const useStreetSearch = (query: string, context: string) => {
+const useStreetSearch = (query: string, context: string, isSelectingRef: React.MutableRefObject<boolean>) => {
     const [suggestions, setSuggestions] = useState<StreetSuggestion[]>([]);
     const [loading, setLoading] = useState(false);
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const lastQueryRef = useRef<string>('');
 
     // Pre-warm coords cache only when barangay is selected (full context available)
     const lastPrewarmed = useRef('');
@@ -46,10 +47,20 @@ const useStreetSearch = (query: string, context: string) => {
     }, [context]);
 
     useEffect(() => {
-        // FIXED: Search with 1+ characters (including single letters)
         const trimmedQuery = query?.trim() || '';
+        
+        // Don't search if we're in the middle of selecting a suggestion
+        if (isSelectingRef.current) {
+            return;
+        }
+        
+        // Don't search if query is empty or same as last search
         if (trimmedQuery.length === 0) {
             setSuggestions([]);
+            return;
+        }
+        
+        if (trimmedQuery === lastQueryRef.current && suggestions.length > 0) {
             return;
         }
         
@@ -58,6 +69,8 @@ const useStreetSearch = (query: string, context: string) => {
             setSuggestions([]);
             return;
         }
+        
+        lastQueryRef.current = trimmedQuery;
         
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(async () => {
@@ -68,11 +81,15 @@ const useStreetSearch = (query: string, context: string) => {
             } catch (err) {
                 console.error("Street search error:", err);
                 setSuggestions([]);
+            } finally {
+                setLoading(false);
             }
-            setLoading(false);
-        }, 300); // Short delay for better UX, but still works for single letters
-        return () => { if (timer.current) clearTimeout(timer.current); };
-    }, [query, context]);
+        }, 300);
+        
+        return () => { 
+            if (timer.current) clearTimeout(timer.current); 
+        };
+    }, [query, context, isSelectingRef]);
 
     return { suggestions, loading, clear: () => setSuggestions([]) };
 };
@@ -100,6 +117,8 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
 
     const streetWrapRef = useRef<HTMLDivElement>(null);
     const inputRef = useRef<HTMLInputElement>(null);
+    const isSelectingRef = useRef<boolean>(false);
+    const previousBarangayRef = useRef<OptionType | null>(null);
 
     // Only pass context once barangay is selected — ensures bbox is tight enough
     const locationContext = (barangay && municipality && province)
@@ -107,7 +126,7 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
         : '';
 
     const { suggestions, loading: loadingStreets, clear: clearStreets } =
-        useStreetSearch(streetInput, locationContext);
+        useStreetSearch(streetInput, locationContext, isSelectingRef);
 
     // Close street dropdown on outside click
     useEffect(() => {
@@ -122,7 +141,7 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
 
     // Show dropdown when suggestions arrive while input is focused
     useEffect(() => {
-        if (suggestions.length > 0 && document.activeElement === inputRef.current) {
+        if (suggestions.length > 0 && document.activeElement === inputRef.current && !isSelectingRef.current) {
             setShowStreetDrop(true);
         }
     }, [suggestions]);
@@ -194,7 +213,7 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
         load();
     }, [municipality]);
 
-    // Notify parent - FIXED: Better fullAddress construction
+    // Notify parent
     useEffect(() => {
         const parts = [];
         if (street) parts.push(street);
@@ -213,7 +232,7 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
             coordinates,
             fullAddress
         });
-    }, [title, province, municipality, barangay, street, coordinates]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [title, province, municipality, barangay, street, coordinates, onChange]);
 
     // ── GPS - FIXED: Better coordinate handling ───────────────────────────────────────────────────
 
@@ -246,7 +265,6 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
                         // Match municipality/city
                         if (addr.city || addr.town || addr.municipality) {
                             const name = addr.city || addr.town || addr.municipality;
-                            // We'll set a temporary option - the actual code will load after province is set
                             setMunicipality({ value: '', label: name });
                         }
                         // Match barangay
@@ -281,38 +299,93 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
         );
     }, [availableProvinces]);
 
-    // ── Street selection ──────────────────────────────────────────────────────
+    // ── Street selection - FIXED: No retrigger and proper focus handling ──────────────────────────────────────
 
     const handleStreetSelect = (s: StreetSuggestion) => {
+        // Prevent any search triggers during selection
+        isSelectingRef.current = true;
+        
+        // Close dropdown immediately
+        setShowStreetDrop(false);
+        
+        // Clear existing suggestions
+        clearStreets();
+        
+        // Set the values
         setStreet(s.label);
         setStreetInput(s.label);
         setCoordinates({ lat: s.lat, lng: s.lon });
-        clearStreets();
-        setShowStreetDrop(false);
-        // Keep focus on input after selection
-        inputRef.current?.focus();
+        
+        // Reset the selecting flag after a delay to prevent rapid refetch
+        setTimeout(() => {
+            isSelectingRef.current = false;
+        }, 500);
+        
+        // Don't refocus to prevent retrigger
+        if (inputRef.current) {
+            inputRef.current.blur();
+            setTimeout(() => {
+                if (inputRef.current) {
+                    inputRef.current.focus();
+                }
+            }, 100);
+        }
     };
 
     const handleStreetInputChange = (val: string) => {
+        // Reset selecting flag when user starts typing manually
+        if (isSelectingRef.current) {
+            isSelectingRef.current = false;
+        }
+        
         setStreetInput(val);
         setStreet(val);
-        // Show dropdown immediately when typing, even with 1 character
-        if (val.length >= 1 && locationContext) {
+        
+        // Show dropdown only if there's input context
+        if (val.trim().length >= 1 && locationContext) {
             setShowStreetDrop(true);
         } else {
             setShowStreetDrop(false);
         }
+        
+        // Clear coordinates when user modifies street manually
+        if (coordinates) {
+            setCoordinates(undefined);
+        }
     };
 
     const handleInputFocus = () => {
-        // Show dropdown if there's input and we're not already loading
-        if (streetInput.length >= 1 && locationContext && suggestions.length > 0) {
-            setShowStreetDrop(true);
-        } else if (streetInput.length >= 1 && locationContext && !loadingStreets) {
-            // If we have input but no suggestions yet, still show dropdown area
+        // Don't auto-open dropdown on focus to prevent flicker
+        if (streetInput.trim().length >= 1 && locationContext && suggestions.length > 0 && !isSelectingRef.current) {
             setShowStreetDrop(true);
         }
     };
+
+    // FIXED: Only clear street input when barangay actually changes to a DIFFERENT value
+    // and only if it's an initial load or user explicitly changed it
+    useEffect(() => {
+        // Skip if this is the initial render
+        if (previousBarangayRef.current === null) {
+            previousBarangayRef.current = barangay;
+            return;
+        }
+        
+        // Only clear if barangay changed to a different value
+        const barangayChanged = previousBarangayRef.current?.value !== barangay?.value;
+        
+        if (barangayChanged && barangay) {
+            // Only clear if the user is not currently typing
+            if (!isSelectingRef.current && streetInput === street) {
+                setStreetInput("");
+                setStreet("");
+                setCoordinates(undefined);
+                clearStreets();
+                setShowStreetDrop(false);
+            }
+        }
+        
+        previousBarangayRef.current = barangay;
+    }, [barangay, clearStreets, street, streetInput]);
 
     // ── Render ────────────────────────────────────────────────────────────────
 
@@ -424,8 +497,19 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
                         value={streetInput}
                         onChange={e => handleStreetInputChange(e.target.value)}
                         onFocus={handleInputFocus}
+                        onKeyDown={(e) => {
+                            // Close dropdown on Escape
+                            if (e.key === 'Escape') {
+                                setShowStreetDrop(false);
+                                inputRef.current?.blur();
+                            }
+                        }}
                         placeholder={!locationContext ? "Select barangay first..." : "Type a road, landmark, or purok..."}
-                        className="w-full pl-10 pr-10 py-3 bg-secondary/80 border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
+                        className={`w-full pl-10 pr-10 py-3 bg-secondary/80 border rounded-xl text-white placeholder-gray-400 focus:outline-none focus:ring-1 transition-all ${
+                            showStreetDrop && suggestions.length > 0
+                                ? 'border-primary rounded-b-none'
+                                : 'border-white/10 focus:border-primary focus:ring-primary'
+                        }`}
                         required
                         autoComplete="off"
                         disabled={!locationContext}
@@ -433,27 +517,29 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center z-10">
                         {loadingStreets
                             ? <Loader className="w-4 h-4 text-gray-400 animate-spin" />
-                            : <ChevronDown className="w-4 h-4 text-gray-500" />
+                            : streetInput.length > 0 && locationContext && (
+                                <ChevronDown className="w-4 h-4 text-gray-500" />
+                            )
                         }
                     </div>
 
-                    {/* Dropdown - Show when there are suggestions AND dropdown is open */}
-                    {showStreetDrop && locationContext && (
-                        <>
+                    {/* Dropdown */}
+                    {showStreetDrop && locationContext && !isSelectingRef.current && (
+                        <div className="absolute left-0 right-0 top-full mt-0 bg-[#1e1e1e] border border-t-0 border-primary/30 rounded-b-xl overflow-hidden shadow-2xl z-50">
                             {loadingStreets ? (
-                                <div className="absolute left-0 right-0 top-full mt-1 bg-[#1e1e1e] border border-white/15 rounded-xl p-4 z-50">
+                                <div className="p-4">
                                     <div className="flex items-center justify-center gap-2">
                                         <Loader className="w-4 h-4 text-primary animate-spin" />
                                         <p className="text-gray-400 text-sm">Searching for places...</p>
                                     </div>
                                 </div>
                             ) : suggestions.length > 0 ? (
-                                <ul className="absolute left-0 right-0 top-full mt-1 bg-[#1e1e1e] border border-white/15 rounded-xl overflow-hidden shadow-2xl z-50 max-h-60 overflow-y-auto">
+                                <ul className="max-h-60 overflow-y-auto">
                                     {suggestions.map((s, i) => (
                                         <li key={i}>
                                             <button
                                                 type="button"
-                                                onMouseDown={(e) => {
+                                                onClick={(e) => {
                                                     e.preventDefault();
                                                     handleStreetSelect(s);
                                                 }}
@@ -468,20 +554,20 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
                                         </li>
                                     ))}
                                 </ul>
-                            ) : streetInput.length >= 1 && (
-                                <div className="absolute left-0 right-0 top-full mt-1 bg-[#1e1e1e] border border-white/15 rounded-xl p-3 z-50">
+                            ) : streetInput.length >= 2 && (
+                                <div className="p-3">
                                     <p className="text-gray-500 text-xs text-center">
                                         No streets/landmarks found for "{streetInput}". You can still type a custom landmark.
                                     </p>
                                 </div>
                             )}
-                        </>
+                        </div>
                     )}
                 </div>
                 <p className="text-gray-500 text-xs mt-1">
                     {!locationContext 
                         ? "Please select a barangay first to search for streets" 
-                        : "Type any letter to search for streets, landmarks, or bridges in this barangay"}
+                        : "Type at least 1 character to search for streets, landmarks, or bridges in this barangay"}
                 </p>
             </div>
 
