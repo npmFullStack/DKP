@@ -8,6 +8,7 @@ import {
     getMunicipalitiesByProvince,
     getBarangaysByMunicipality,
     searchStreets,
+    prewarmLocationCache,
     reverseGeocode,
     type StreetSuggestion
 } from "@/services/locationService";
@@ -28,22 +29,48 @@ interface LocationSearchProps {
     initialData?: Partial<LocationData>;
 }
 
-// ─── Street autocomplete hook ─────────────────────────────────────────────────
+// ─── Street autocomplete hook - FIXED: Now suggests with 1+ characters ─────────────────────────────────
 
 const useStreetSearch = (query: string, context: string) => {
     const [suggestions, setSuggestions] = useState<StreetSuggestion[]>([]);
     const [loading, setLoading] = useState(false);
     const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    // Pre-warm coords cache only when barangay is selected (full context available)
+    const lastPrewarmed = useRef('');
     useEffect(() => {
-        if (!query || query.length < 3) { setSuggestions([]); return; }
+        if (context && context !== lastPrewarmed.current) {
+            lastPrewarmed.current = context;
+            prewarmLocationCache(context);
+        }
+    }, [context]);
+
+    useEffect(() => {
+        // FIXED: Search with 1+ characters (including single letters)
+        const trimmedQuery = query?.trim() || '';
+        if (trimmedQuery.length === 0) {
+            setSuggestions([]);
+            return;
+        }
+        
+        // Don't search if no context (barangay not selected yet)
+        if (!context) {
+            setSuggestions([]);
+            return;
+        }
+        
         if (timer.current) clearTimeout(timer.current);
         timer.current = setTimeout(async () => {
             setLoading(true);
-            const results = await searchStreets(query, context);
-            setSuggestions(results);
+            try {
+                const results = await searchStreets(trimmedQuery, context);
+                setSuggestions(results);
+            } catch (err) {
+                console.error("Street search error:", err);
+                setSuggestions([]);
+            }
             setLoading(false);
-        }, 400);
+        }, 300); // Short delay for better UX, but still works for single letters
         return () => { if (timer.current) clearTimeout(timer.current); };
     }, [query, context]);
 
@@ -72,10 +99,12 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
     const [availableBarangays, setAvailableBarangays] = useState<OptionType[]>([]);
 
     const streetWrapRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
-    // Build context string to bias Nominatim suggestions
-    const locationContext = [barangay?.label, municipality?.label, province?.label]
-        .filter(Boolean).join(', ');
+    // Only pass context once barangay is selected — ensures bbox is tight enough
+    const locationContext = (barangay && municipality && province)
+        ? [barangay.label, municipality.label, province.label].join(', ')
+        : '';
 
     const { suggestions, loading: loadingStreets, clear: clearStreets } =
         useStreetSearch(streetInput, locationContext);
@@ -90,6 +119,13 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
         document.addEventListener('mousedown', onDown);
         return () => document.removeEventListener('mousedown', onDown);
     }, []);
+
+    // Show dropdown when suggestions arrive while input is focused
+    useEffect(() => {
+        if (suggestions.length > 0 && document.activeElement === inputRef.current) {
+            setShowStreetDrop(true);
+        }
+    }, [suggestions]);
 
     // ── Data loaders ──────────────────────────────────────────────────────────
 
@@ -123,7 +159,6 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
             setMunicipality(null);
             setBarangay(null);
             try {
-                // Pass the PSGC province CODE (value), not the label
                 const list = await getMunicipalitiesByProvince(province.value);
                 setAvailableMunicipalities(list);
                 if (!list.length) setError(`No cities/municipalities found for ${province.label}`);
@@ -147,7 +182,6 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
             setError("");
             setBarangay(null);
             try {
-                // Pass the PSGC city/municipality CODE (value), not the label
                 const list = await getBarangaysByMunicipality(municipality.value);
                 setAvailableBarangays(list);
                 if (!list.length) setError(`No barangays found for ${municipality.label}`);
@@ -160,7 +194,7 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
         load();
     }, [municipality]);
 
-    // Notify parent
+    // Notify parent - FIXED: Better fullAddress construction
     useEffect(() => {
         const parts = [];
         if (street) parts.push(street);
@@ -168,6 +202,8 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
         if (municipality) parts.push(municipality.label);
         if (province) parts.push(province.label);
 
+        const fullAddress = parts.join(", ");
+        
         onChange({
             title,
             province,
@@ -175,11 +211,11 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
             barangay,
             street,
             coordinates,
-            fullAddress: parts.join(", ")
+            fullAddress
         });
-    }, [title, province, municipality, barangay, street, coordinates, onChange]);
+    }, [title, province, municipality, barangay, street, coordinates]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // ── GPS ───────────────────────────────────────────────────────────────────
+    // ── GPS - FIXED: Better coordinate handling ───────────────────────────────────────────────────
 
     const getCurrentLocation = useCallback(() => {
         if (!navigator.geolocation) {
@@ -190,11 +226,16 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
         setError("");
 
         navigator.geolocation.getCurrentPosition(
-            async ({ coords: { latitude, longitude } }) => {
+            async (position) => {
+                const { latitude, longitude } = position.coords;
+                // Immediately set coordinates
+                setCoordinates({ lat: latitude, lng: longitude });
+                
                 try {
                     const geo = await reverseGeocode(latitude, longitude);
                     if (geo?.address) {
                         const addr = geo.address;
+                        // Match province
                         if (addr.province || addr.state) {
                             const name = addr.province || addr.state;
                             const match = availableProvinces.find(
@@ -202,26 +243,28 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
                             );
                             if (match) setProvince(match);
                         }
+                        // Match municipality/city
                         if (addr.city || addr.town || addr.municipality) {
                             const name = addr.city || addr.town || addr.municipality;
-                            // We don't have a PSGC code from Nominatim, but the
-                            // dropdown will load after province is set
+                            // We'll set a temporary option - the actual code will load after province is set
                             setMunicipality({ value: '', label: name });
                         }
+                        // Match barangay
                         if (addr.suburb || addr.village || addr.neighbourhood) {
                             const name = addr.suburb || addr.village || addr.neighbourhood;
                             setBarangay({ value: '', label: name });
                         }
+                        // Match street
                         if (addr.road) {
                             setStreet(addr.road);
                             setStreetInput(addr.road);
                         }
-                        setCoordinates({ lat: latitude, lng: longitude });
                     } else {
                         setError("Could not determine address from your location.");
                     }
-                } catch {
-                    setError("Unable to get address. Please select manually.");
+                } catch (err) {
+                    console.error("Reverse geocoding error:", err);
+                    setError("Unable to get address. Using coordinates only.");
                 } finally {
                     setSearchingLocation(false);
                 }
@@ -246,12 +289,29 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
         setCoordinates({ lat: s.lat, lng: s.lon });
         clearStreets();
         setShowStreetDrop(false);
+        // Keep focus on input after selection
+        inputRef.current?.focus();
     };
 
     const handleStreetInputChange = (val: string) => {
         setStreetInput(val);
-        setStreet(val);          // keep free-text value too
-        setShowStreetDrop(true);
+        setStreet(val);
+        // Show dropdown immediately when typing, even with 1 character
+        if (val.length >= 1 && locationContext) {
+            setShowStreetDrop(true);
+        } else {
+            setShowStreetDrop(false);
+        }
+    };
+
+    const handleInputFocus = () => {
+        // Show dropdown if there's input and we're not already loading
+        if (streetInput.length >= 1 && locationContext && suggestions.length > 0) {
+            setShowStreetDrop(true);
+        } else if (streetInput.length >= 1 && locationContext && !loadingStreets) {
+            // If we have input but no suggestions yet, still show dropdown area
+            setShowStreetDrop(true);
+        }
     };
 
     // ── Render ────────────────────────────────────────────────────────────────
@@ -359,14 +419,16 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
                 <div className="relative">
                     <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 z-10 pointer-events-none" />
                     <input
+                        ref={inputRef}
                         type="text"
                         value={streetInput}
                         onChange={e => handleStreetInputChange(e.target.value)}
-                        onFocus={() => streetInput.length >= 3 && setShowStreetDrop(true)}
-                        placeholder="Type a road, landmark, or purok..."
-                        className="w-full pl-10 pr-10 py-3 bg-secondary/80 border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary"
+                        onFocus={handleInputFocus}
+                        placeholder={!locationContext ? "Select barangay first..." : "Type a road, landmark, or purok..."}
+                        className="w-full pl-10 pr-10 py-3 bg-secondary/80 border border-white/10 rounded-xl text-white placeholder-gray-400 focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-50"
                         required
                         autoComplete="off"
+                        disabled={!locationContext}
                     />
                     <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center z-10">
                         {loadingStreets
@@ -375,35 +437,52 @@ const LocationSearch = ({ onChange, initialData = {} }: LocationSearchProps) => 
                         }
                     </div>
 
-                    {/* Dropdown */}
-                    {showStreetDrop && suggestions.length > 0 && (
-                        <ul className="absolute left-0 right-0 top-full mt-1 bg-[#1e1e1e] border border-white/15 rounded-xl overflow-hidden shadow-2xl z-50 max-h-60 overflow-y-auto">
-                            {suggestions.map((s, i) => (
-                                <li key={i}>
-                                    <button
-                                        type="button"
-                                        onMouseDown={() => handleStreetSelect(s)}
-                                        className="w-full text-left px-4 py-3 hover:bg-primary/10 transition-colors border-b border-white/5 last:border-0 flex items-start gap-3"
-                                    >
-                                        <MapPin className="w-3.5 h-3.5 text-primary mt-0.5 flex-shrink-0" />
-                                        <div className="min-w-0">
-                                            <p className="text-white text-sm font-medium truncate">{s.label}</p>
-                                            <p className="text-gray-500 text-xs truncate mt-0.5">{s.fullName}</p>
-                                        </div>
-                                    </button>
-                                </li>
-                            ))}
-                        </ul>
-                    )}
-
-                    {/* No results hint */}
-                    {showStreetDrop && !loadingStreets && streetInput.length >= 3 && suggestions.length === 0 && (
-                        <div className="absolute left-0 right-0 top-full mt-1 bg-[#1e1e1e] border border-white/15 rounded-xl p-3 z-50">
-                            <p className="text-gray-500 text-xs text-center">No results — you can still type a custom landmark</p>
-                        </div>
+                    {/* Dropdown - Show when there are suggestions AND dropdown is open */}
+                    {showStreetDrop && locationContext && (
+                        <>
+                            {loadingStreets ? (
+                                <div className="absolute left-0 right-0 top-full mt-1 bg-[#1e1e1e] border border-white/15 rounded-xl p-4 z-50">
+                                    <div className="flex items-center justify-center gap-2">
+                                        <Loader className="w-4 h-4 text-primary animate-spin" />
+                                        <p className="text-gray-400 text-sm">Searching for places...</p>
+                                    </div>
+                                </div>
+                            ) : suggestions.length > 0 ? (
+                                <ul className="absolute left-0 right-0 top-full mt-1 bg-[#1e1e1e] border border-white/15 rounded-xl overflow-hidden shadow-2xl z-50 max-h-60 overflow-y-auto">
+                                    {suggestions.map((s, i) => (
+                                        <li key={i}>
+                                            <button
+                                                type="button"
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    handleStreetSelect(s);
+                                                }}
+                                                className="w-full text-left px-4 py-3 hover:bg-primary/10 transition-colors border-b border-white/5 last:border-0 flex items-start gap-3"
+                                            >
+                                                <MapPin className="w-3.5 h-3.5 text-primary mt-0.5 flex-shrink-0" />
+                                                <div className="min-w-0">
+                                                    <p className="text-white text-sm font-medium truncate">{s.label}</p>
+                                                    <p className="text-gray-500 text-xs truncate mt-0.5">{s.fullName}</p>
+                                                </div>
+                                            </button>
+                                        </li>
+                                    ))}
+                                </ul>
+                            ) : streetInput.length >= 1 && (
+                                <div className="absolute left-0 right-0 top-full mt-1 bg-[#1e1e1e] border border-white/15 rounded-xl p-3 z-50">
+                                    <p className="text-gray-500 text-xs text-center">
+                                        No streets/landmarks found for "{streetInput}". You can still type a custom landmark.
+                                    </p>
+                                </div>
+                            )}
+                        </>
                     )}
                 </div>
-                <p className="text-gray-500 text-xs mt-1">Search or type a road name, landmark, or purok</p>
+                <p className="text-gray-500 text-xs mt-1">
+                    {!locationContext 
+                        ? "Please select a barangay first to search for streets" 
+                        : "Type any letter to search for streets, landmarks, or bridges in this barangay"}
+                </p>
             </div>
 
             {/* Coordinates badge */}
