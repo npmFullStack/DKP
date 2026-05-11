@@ -1,6 +1,6 @@
 // src/layouts/DashboardLayout.tsx
 import { useState, useEffect } from "react";
-import { Outlet, Link, useLocation } from "react-router-dom";
+import { Outlet, Link, useLocation, useNavigate } from "react-router-dom";
 import {
     Menu,
     X,
@@ -14,6 +14,7 @@ import {
 import logo from "@/assets/images/logo.png";
 import NotificationMenu from "@/components/NotificationMenu";
 import WarningModal from "@/components/WarningModal";
+import { authService } from "@/services/authService";
 
 const DashboardLayout = () => {
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -21,6 +22,14 @@ const DashboardLayout = () => {
     const [isLogoutModalOpen, setIsLogoutModalOpen] = useState(false);
     const [isLoggingOut, setIsLoggingOut] = useState(false);
     const location = useLocation();
+    const navigate = useNavigate();
+
+    // Check authentication on mount
+    useEffect(() => {
+        if (!authService.isAuthenticated()) {
+            navigate('/signin');
+        }
+    }, [navigate]);
 
     useEffect(() => {
         const checkMobile = () => {
@@ -51,13 +60,16 @@ const DashboardLayout = () => {
 
     const confirmLogout = async () => {
         setIsLoggingOut(true);
-        // Simulate API call
+        
+        // Simulate API call delay for better UX
         setTimeout(() => {
+            // Perform logout
+            authService.logout();
             setIsLoggingOut(false);
             setIsLogoutModalOpen(false);
-            // Navigate to signin or handle logout logic
-            console.log("Logged out");
-        }, 1000);
+            // Navigate to signin page
+            navigate('/signin');
+        }, 500);
     };
 
     const navItems = [
@@ -65,6 +77,10 @@ const DashboardLayout = () => {
         { path: "/checkpoint", icon: MapPin, label: "Checkpoints" },
         { path: "/settings", icon: Settings, label: "Settings" }
     ];
+
+    // Get user information
+    const user = authService.getUser();
+    const userInitial = user?.username ? user.username.charAt(0).toUpperCase() : 'U';
 
     const SidebarContent = () => (
         <div className="flex flex-col h-full">
@@ -140,6 +156,11 @@ const DashboardLayout = () => {
         </div>
     );
 
+    // Don't render anything while checking authentication
+    if (!authService.isAuthenticated()) {
+        return null;
+    }
+
     return (
         <div className="min-h-screen bg-bgColor">
             {/* Mobile Overlay */}
@@ -209,12 +230,12 @@ const DashboardLayout = () => {
                         {/* Right section with notification and user avatar */}
                         <div className="flex items-center gap-4">
                             {/* Notification Bell */}
-<NotificationMenu />
+                            <NotificationMenu />
 
-                            {/* User Avatar */}
+                            {/* User Avatar - shows first letter of username */}
                             <div className="w-8 h-8 rounded-full bg-primary/20 flex items-center justify-center">
-                                <span className="text-primary font-semibold">
-                                    JD
+                                <span className="text-primary font-semibold text-sm">
+                                    {userInitial}
                                 </span>
                             </div>
                         </div>

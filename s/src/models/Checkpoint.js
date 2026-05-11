@@ -21,7 +21,15 @@ export const Checkpoint = {
     return result.rows[0];
   },
 
-  async findAll({ status = 'active', limit = 50, offset = 0, search = '' } = {}) {
+  async findAll({ 
+    status = 'active', 
+    limit = 50, 
+    offset = 0, 
+    search = '',
+    province = null,
+    municipality = null,
+    barangay = null
+  } = {}) {
     let query = `
       SELECT c.*, u.username as reporter_name, u.avatar as reporter_avatar,
              COALESCE((
@@ -46,6 +54,24 @@ export const Checkpoint = {
       paramIndex++;
     }
 
+    if (province) {
+      query += ` AND c.province = $${paramIndex}`;
+      params.push(province);
+      paramIndex++;
+    }
+
+    if (municipality) {
+      query += ` AND c.municipality = $${paramIndex}`;
+      params.push(municipality);
+      paramIndex++;
+    }
+
+    if (barangay) {
+      query += ` AND c.barangay = $${paramIndex}`;
+      params.push(barangay);
+      paramIndex++;
+    }
+
     query += ` ORDER BY c.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     params.push(limit, offset);
 
@@ -54,10 +80,32 @@ export const Checkpoint = {
     // Get total count
     let countQuery = 'SELECT COUNT(*) FROM checkpoints WHERE status = $1';
     const countParams = [status];
+    let countIndex = 2;
+
     if (search) {
-      countQuery += ` AND (title ILIKE $2 OR full_address ILIKE $2)`;
+      countQuery += ` AND (title ILIKE $${countIndex} OR full_address ILIKE $${countIndex})`;
       countParams.push(`%${search}%`);
+      countIndex++;
     }
+
+    if (province) {
+      countQuery += ` AND province = $${countIndex}`;
+      countParams.push(province);
+      countIndex++;
+    }
+
+    if (municipality) {
+      countQuery += ` AND municipality = $${countIndex}`;
+      countParams.push(municipality);
+      countIndex++;
+    }
+
+    if (barangay) {
+      countQuery += ` AND barangay = $${countIndex}`;
+      countParams.push(barangay);
+      countIndex++;
+    }
+
     const countResult = await pool.query(countQuery, countParams);
 
     return {
@@ -86,6 +134,60 @@ export const Checkpoint = {
       [id]
     );
     return result.rows[0];
+  },
+
+  async findByUser(userId, { status = 'active', limit = 50, offset = 0 } = {}) {
+    const result = await pool.query(
+      `SELECT c.*, u.username as reporter_name, u.avatar as reporter_avatar,
+              COALESCE((
+                SELECT COUNT(*) FROM comments WHERE checkpoint_id = c.id
+              ), 0) as comment_count
+       FROM checkpoints c
+       LEFT JOIN users u ON c.reported_by = u.id
+       WHERE c.reported_by = $1 AND c.status = $2
+       ORDER BY c.created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [userId, status, limit, offset]
+    );
+    
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM checkpoints WHERE reported_by = $1 AND status = $2`,
+      [userId, status]
+    );
+    
+    return {
+      checkpoints: result.rows,
+      total: parseInt(countResult.rows[0].count),
+      limit,
+      offset
+    };
+  },
+
+  async findNearby(lat, lng, radiusKm = 10) {
+    // Earth's radius in km
+    const earthRadius = 6371;
+    
+    const result = await pool.query(
+      `SELECT c.*, u.username as reporter_name, u.avatar as reporter_avatar,
+        (${earthRadius} * acos(
+          cos(radians($1)) * cos(radians(c.latitude)) * 
+          cos(radians(c.longitude) - radians($2)) + 
+          sin(radians($1)) * sin(radians(c.latitude))
+        )) AS distance_km
+       FROM checkpoints c
+       LEFT JOIN users u ON c.reported_by = u.id
+       WHERE c.status = 'active'
+       HAVING (${earthRadius} * acos(
+          cos(radians($1)) * cos(radians(c.latitude)) * 
+          cos(radians(c.longitude) - radians($2)) + 
+          sin(radians($1)) * sin(radians(c.latitude))
+        )) <= $3
+       ORDER BY distance_km ASC
+       LIMIT 100`,
+      [lat, lng, radiusKm]
+    );
+    
+    return result.rows;
   },
 
   async updateStatus(id, status) {
@@ -189,13 +291,73 @@ export const Checkpoint = {
     return result.rows;
   },
 
+  async hasUserReported(userId, checkpointId) {
+    const result = await pool.query(
+      'SELECT id FROM checkpoint_reports WHERE user_id = $1 AND checkpoint_id = $2',
+      [userId, checkpointId]
+    );
+    return result.rows.length > 0;
+  },
+
+  async addReport(userId, checkpointId, reason) {
+    const result = await pool.query(
+      `INSERT INTO checkpoint_reports (user_id, checkpoint_id, reason)
+       VALUES ($1, $2, $3)
+       RETURNING *`,
+      [userId, checkpointId, reason]
+    );
+    return result.rows[0];
+  },
+
+  async getReportCount(checkpointId) {
+    const result = await pool.query(
+      'SELECT COUNT(*) FROM checkpoint_reports WHERE checkpoint_id = $1',
+      [checkpointId]
+    );
+    return parseInt(result.rows[0].count);
+  },
+
+  async getReports(checkpointId) {
+    const result = await pool.query(
+      `SELECT r.*, u.username
+       FROM checkpoint_reports r
+       JOIN users u ON r.user_id = u.id
+       WHERE r.checkpoint_id = $1
+       ORDER BY r.created_at DESC`,
+      [checkpointId]
+    );
+    return result.rows;
+  },
+
+  async delete(id) {
+    const result = await pool.query(
+      'DELETE FROM checkpoints WHERE id = $1 RETURNING *',
+      [id]
+    );
+    return result.rows[0];
+  },
+
   async expireOldCheckpoints() {
     const result = await pool.query(
       `UPDATE checkpoints 
        SET status = 'expired' 
        WHERE status = 'active' AND expires_at < NOW()
-       RETURNING id`
+       RETURNING id, title, barangay`
     );
     return result.rows;
+  },
+
+  async getStats() {
+    const result = await pool.query(
+      `SELECT 
+        COUNT(*) as total,
+        COUNT(CASE WHEN status = 'active' THEN 1 END) as active,
+        COUNT(CASE WHEN status = 'expired' THEN 1 END) as expired,
+        COUNT(CASE WHEN status = 'suspicious' THEN 1 END) as suspicious,
+        COALESCE(SUM(likes), 0) as total_likes,
+        COALESCE(SUM(dislikes), 0) as total_dislikes
+       FROM checkpoints`
+    );
+    return result.rows[0];
   }
 };

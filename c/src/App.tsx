@@ -6,7 +6,6 @@ import MainLayout from "@/layouts/MainLayout";
 import AuthLayout from "@/layouts/AuthLayout";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import Loading from "@/pages/Loading";
-import ProtectedRoute from "@/components/ProtectedRoute";
 
 const Home = lazy(() => import("@/pages/Home"));
 const SignIn = lazy(() => import("@/pages/SignIn"));
@@ -30,13 +29,11 @@ function App() {
                             <Route path="/signin" element={<SignIn />} />
                             <Route path="/signup" element={<SignUp />} />
                         </Route>
-                        <Route element={<ProtectedRoute />}>
-                            <Route element={<DashboardLayout />}>
-                                <Route path="/dashboard" element={<Dashboard />} />
-                                <Route path="/checkpoint" element={<Checkpoint />} />
-                                <Route path="/checkpoint/report" element={<ReportCheckpoint />} />
-                                <Route path="/settings" element={<Settings />} />
-                            </Route>
+                        <Route element={<DashboardLayout />}>
+                            <Route path="/dashboard" element={<Dashboard />} />
+                            <Route path="/checkpoint" element={<Checkpoint />} />
+                            <Route path="/checkpoint/report" element={<ReportCheckpoint />} />
+                            <Route path="/settings" element={<Settings />} />
                         </Route>
                         <Route path="/map" element={<ViewMap />} />
                     </Routes>
