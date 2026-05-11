@@ -1,27 +1,32 @@
 // src/pages/SignIn.tsx
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import Button from "@/components/Button";
 import { Eye, EyeOff, Mail, Lock, LogIn, Loader2 } from "lucide-react";
 import logo from "@/assets/images/logo.png";
 
 const SignIn = () => {
     const navigate = useNavigate();
+    const { signin, isLoading, error } = useAuth();
     const [showPassword, setShowPassword] = useState(false);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
+    const [localError, setLocalError] = useState("");
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        setIsLoading(true);
-
-        // Simulate API call
-        setTimeout(() => {
-            setIsLoading(false);
+        setLocalError("");
+        
+        try {
+            await signin({ username, password });
             navigate("/dashboard");
-        }, 1000);
+        } catch (err) {
+            setLocalError(err instanceof Error ? err.message : "Sign in failed");
+        }
     };
+
+    const displayError = localError || error;
 
     return (
         <div className="min-h-[calc(100vh-5rem)] flex items-center justify-center px-4">
@@ -38,11 +43,17 @@ const SignIn = () => {
                             DAKOP
                         </span>
                     </div>
-
                     <p className="text-gray-400">
                         Sign in to continue to DAKOP
                     </p>
                 </div>
+
+                {/* Error Message */}
+                {displayError && (
+                    <div className="mb-4 p-3 rounded-lg bg-red-500/20 border border-red-500 text-red-500 text-sm text-center">
+                        {displayError}
+                    </div>
+                )}
 
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="space-y-6">
@@ -59,6 +70,8 @@ const SignIn = () => {
                                 onChange={e => setUsername(e.target.value)}
                                 className="w-full pl-10 pr-3 py-2 bg-secondary border border-white/10 rounded-lg focus:outline-none focus:border-primary text-white"
                                 placeholder="Enter your username"
+                                disabled={isLoading}
+                                required
                             />
                         </div>
                     </div>
@@ -76,6 +89,8 @@ const SignIn = () => {
                                 onChange={e => setPassword(e.target.value)}
                                 className="w-full pl-10 pr-10 py-2 bg-secondary border border-white/10 rounded-lg focus:outline-none focus:border-primary text-white"
                                 placeholder="Enter your password"
+                                disabled={isLoading}
+                                required
                             />
                             <button
                                 type="button"

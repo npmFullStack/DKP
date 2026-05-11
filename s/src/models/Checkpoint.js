@@ -8,12 +8,12 @@ export const Checkpoint = {
 
     const result = await pool.query(
       `INSERT INTO checkpoints (
-        title, description, province, municipality, barangay, street, 
+        title, province, municipality, barangay, street, 
         full_address, latitude, longitude, image_urls, reported_by, expires_at
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING *`,
       [
-        data.title, data.description, data.province, data.municipality,
+        data.title, data.province, data.municipality,
         data.barangay, data.street, data.fullAddress, data.latitude,
         data.longitude, data.imageUrls || [], data.reportedBy, expiresAt
       ]

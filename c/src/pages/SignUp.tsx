@@ -1,38 +1,52 @@
 // src/pages/SignUp.tsx
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { useAuth } from "@/contexts/AuthContext";
 import Button from "@/components/Button";
 import { Eye, EyeOff, User, Lock, UserPlus, Loader2 } from "lucide-react";
 import logo from "@/assets/images/logo.png";
 
 const SignUp = () => {
     const navigate = useNavigate();
+    const { signup, isLoading, error } = useAuth();
     const [showPassword, setShowPassword] = useState(false);
     const [showConfirmPassword, setShowConfirmPassword] = useState(false);
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
     const [confirmPassword, setConfirmPassword] = useState("");
-    const [passwordError, setPasswordError] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
+    const [localPasswordError, setLocalPasswordError] = useState("");
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
 
         // Validate passwords match
         if (password !== confirmPassword) {
-            setPasswordError("Passwords do not match");
+            setLocalPasswordError("Passwords do not match");
             return;
         }
 
-        setPasswordError("");
-        setIsLoading(true);
+        if (password.length < 6) {
+            setLocalPasswordError("Password must be at least 6 characters");
+            return;
+        }
 
-        // Simulate API call
-        setTimeout(() => {
-            setIsLoading(false);
+        if (username.length < 3) {
+            setLocalPasswordError("Username must be at least 3 characters");
+            return;
+        }
+
+        setLocalPasswordError("");
+        
+        try {
+            await signup({ username, password });
             navigate("/dashboard");
-        }, 1000);
+        } catch (err) {
+            // Error is handled by auth context
+            console.error("Signup error:", err);
+        }
     };
+
+    const displayError = localPasswordError || error;
 
     return (
         <div className="min-h-[calc(100vh-5rem)] flex items-center justify-center px-4">
@@ -52,6 +66,13 @@ const SignUp = () => {
                     <p className="text-gray-400">Join DAKOP to get started</p>
                 </div>
 
+                {/* Error Message */}
+                {displayError && (
+                    <div className="mb-4 p-3 rounded-lg bg-red-500/20 border border-red-500 text-red-500 text-sm text-center">
+                        {displayError}
+                    </div>
+                )}
+
                 {/* Form */}
                 <form onSubmit={handleSubmit} className="space-y-6">
                     {/* Username Field */}
@@ -66,7 +87,10 @@ const SignUp = () => {
                                 value={username}
                                 onChange={e => setUsername(e.target.value)}
                                 className="w-full pl-10 pr-3 py-2 bg-secondary border border-white/10 rounded-lg focus:outline-none focus:border-primary text-white"
-                                placeholder="Choose a username"
+                                placeholder="Choose a username (min. 3 characters)"
+                                disabled={isLoading}
+                                required
+                                minLength={3}
                             />
                         </div>
                     </div>
@@ -83,7 +107,10 @@ const SignUp = () => {
                                 value={password}
                                 onChange={e => setPassword(e.target.value)}
                                 className="w-full pl-10 pr-10 py-2 bg-secondary border border-white/10 rounded-lg focus:outline-none focus:border-primary text-white"
-                                placeholder="Create a password"
+                                placeholder="Create a password (min. 6 characters)"
+                                disabled={isLoading}
+                                required
+                                minLength={6}
                             />
                             <button
                                 type="button"
@@ -109,21 +136,19 @@ const SignUp = () => {
                             <input
                                 type={showConfirmPassword ? "text" : "password"}
                                 value={confirmPassword}
-                                onChange={e =>
-                                    setConfirmPassword(e.target.value)
-                                }
+                                onChange={e => setConfirmPassword(e.target.value)}
                                 className={`w-full pl-10 pr-10 py-2 bg-secondary border rounded-lg focus:outline-none focus:border-primary text-white ${
-                                    passwordError
+                                    localPasswordError && localPasswordError.includes("match")
                                         ? "border-red-500"
                                         : "border-white/10"
                                 }`}
                                 placeholder="Confirm your password"
+                                disabled={isLoading}
+                                required
                             />
                             <button
                                 type="button"
-                                onClick={() =>
-                                    setShowConfirmPassword(!showConfirmPassword)
-                                }
+                                onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                                 className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-white transition-colors"
                             >
                                 {showConfirmPassword ? (
@@ -133,11 +158,6 @@ const SignUp = () => {
                                 )}
                             </button>
                         </div>
-                        {passwordError && (
-                            <p className="mt-1 text-sm text-red-500">
-                                {passwordError}
-                            </p>
-                        )}
                     </div>
 
                     {/* Submit Button */}
