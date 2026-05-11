@@ -1,3 +1,4 @@
+// src/routes/checkpointRoutes.js
 import express from 'express';
 import {
   createCheckpoint,

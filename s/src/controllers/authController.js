@@ -1,3 +1,4 @@
+// src/controllers/authController.js
 import jwt from 'jsonwebtoken';
 import dotenv from 'dotenv';
 import { User } from '../models/User.js';

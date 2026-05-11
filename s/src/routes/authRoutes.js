@@ -1,3 +1,4 @@
+// src/routes/authRoutes.js
 import express from 'express';
 import { signup, signin, getMe } from '../controllers/authController.js';
 import { authenticateToken } from '../middleware/auth.js';

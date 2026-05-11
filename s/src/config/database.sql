@@ -1,3 +1,4 @@
+--src/config/database.sql
 -- Create database
 -- CREATE DATABASE dakop_db;
 

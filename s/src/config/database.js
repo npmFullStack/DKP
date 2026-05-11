@@ -1,3 +1,5 @@
+// src/config/database.js
+
 import pg from 'pg';
 import dotenv from 'dotenv';
 

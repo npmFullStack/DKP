@@ -1,3 +1,4 @@
+// src/models/Settings.js
 import pool from '../config/database.js';
 
 export const Settings = {

@@ -1,3 +1,4 @@
+// src/models/Notification.js
 import pool from '../config/database.js';
 
 export const Notification = {

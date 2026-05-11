@@ -1,3 +1,4 @@
+// src/controllers/checkpointController.js
 import { Checkpoint } from '../models/Checkpoint.js';
 import { Notification } from '../models/Notification.js';
 

@@ -1,3 +1,4 @@
+// src/models/Checkpoint.js
 import pool from '../config/database.js';
 
 export const Checkpoint = {
